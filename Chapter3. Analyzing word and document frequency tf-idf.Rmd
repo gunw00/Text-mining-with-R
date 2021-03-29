@@ -1,0 +1,304 @@
+---
+title: 'Chap3. Analyzing word and document frequency: tf-idf'
+author: "Geonwoo Ban"
+date: 'March 24th, 2021'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+> review
+
+### anti_join
+
+```{r}
+library(dplyr)
+library(janeaustenr)
+library(tidytext)
+
+A <- tibble(class=c("a", "b", "c"), value=c(1,2,4))
+B <- tibble(class=c("c", "b"))
+anti_join(A, B)
+
+
+A <- tibble(class=c("a", "b", "c"), value=c(1,2,4))
+B <- tibble(class=c("c", "b"), value=c(1,3))
+anti_join(A, B)
+
+A <- tibble(class=c("a", "b", "c"), value=c(1,2,4))
+B <- tibble(class=c("c", "b"), value=c(4,2))
+anti_join(A, B)
+
+A <- tibble(class=c("a", "b", "c"), value=c(1,2,4))
+B <- tibble(class=c("c", "b"), time=c(43, 22))
+anti_join(A, B)
+```
+\pagebreak
+
+### cor.test
+
+-두 변수간의 상관성에 대한 검정.
+
+-$H_0:\rho=0$ 에 대한 검정으로 표본상관계수 $r$을 구하여 검정통계량을 계산한 후에 검정통계량을 사용하여 검정을 시행한다.
+
+-p-value가 유의수준보다 작으면 귀무가설을 기각할 근거가 충분하다고 판단하여 귀무가설을 기각하고, 유의수준보다 크다면 귀무가설을 기각할 근거가 충분하지 못하여 기각할 수 없다.
+
+-주로 연속형 변수간의 상관검정은 **pearson 상관계수**를 구하여 계산하며, 비모수적 검정으로는 **kendall 상관계수**, 이산형 변수인 경우엔 **spearman 상관계수**를 이용하여 검정을 시행한다.
+
+\pagebreak
+
+> Introduction
+
+-텍스트 마이닝과 NLP분야에서는 문서가 어떤 것을 담고 있는지 quantify하는 것이 핵심 주제 중 하나이다. 문서를 구정하는 단어들만 보고 정량화를 하는 방법 중 하나는 **용어빈도(term frequency, tf)**이며, 이는 앞선 Chapter에서 다루었다. 
+
+-tf는 문서에서 단어의 빈도수를 나타낸 것인데, 이는 앞선 Chapter에선 중요하지 않은 단어들도 많이 반복되는 경우도 있어 이러한 단어들을 불용어로 지정하여 제거하는 방법을 선택하였다.
+
+
+-하지만 어떤 문서에서는 이러한 불용어들이 불용어가 아닌 단어보다 중요할 수있다. 불용어 목록을 지정하여 분석하는 방법은 정교한 방법은 아니라고 볼 수 있다.
+
+-또 다른 접근법은 흔히 사용하는 단어의 중요성은 낮추면서도 문서 모음집에서 많이 사용되지 않는 단어에 대해서는 오히려 중요성을 키운 용어의 **역문서빈도(Inverse document frequency, idf)**응 살펴보는 것이다.
+
+-tf와 idf를 결합함으로써 용어의 **용어빈도-역문서빈도(tf-idf)**를 계산할 수 있는데, 빈도는 해당 용어가 얼마나 드물게 사용되는가에 따라 조정된다.
+
+-**통계량인 tf-idf는 여러 문서 모음집에 속한 1개의 문서에 대한 특정 단어의 중요도를 측정하기 위한 것이다.**
+
+-통계량인 tf-idf는 **heuristic quantity**이다. 텍스트 마이닝이나 검색 엔진 등에 유용하다는 점이 입중되었지만, tf-idf에 대한 기초 이론은 튼튼하지 않다고 여긴다. [https://en.wikipedia.org/wiki/Heuristic_(computer_science)](https://en.wikipedia.org/wiki/Heuristic_(computer_science))
+
+-tf-idf를 사용하여 분석을 하게 되면, 다양한 용어들이 각기 얼마나 중요한지를 수량화하는 효과적인 결과를 낼 수 있을 것이다.
+
+<br /><br />
+<center>$tf(term)=\frac{n_{term}}{n_{words\ in\ the\ documents}}$ </center>
+<br /><br />
+<center>$idf(term)=ln(\frac{n_{documents}}{n_{documents\ containing\ term}})$</center>
+<br /><br />
+<center>$tf\_idf(term)=tf(term)\times idf(term)$</center>
+
+
+\pagebreak
+
+> Term frequency in Jane Austen’s novels
+
+-먼저 제인 오스틴의 소설을 가지고 tf와 tf-idf를 계산하자.
+
+
+```{r, message=F, warning=F}
+book_words <- austen_books() %>% # 소설모음집을 불러온 다음
+  unnest_tokens(word, text) %>%  # tokenization을 해준 후,
+  count(book, word, sort = TRUE) # 각 단어들의 빈도수를 계산한 다음 가장 많이 사용한 단어 순으로 정렬.
+
+total_words <- book_words %>%    # 빈도수를 표현한 데이터를 가지고
+  group_by(book) %>%             # 각 소설별로 그룹화를 시킨 후
+  summarize(total = sum(n))      # 각 소설 별 사용된 단어의 갯수를 계산.
+
+book_words <- left_join(book_words, total_words) # left_join()이 두 데이터셋을 병합시켜줌 
+
+book_words
+```
+
+* n은 도서에서 해당 단어가 사용된 횟수이고, total은 해당 도서에 나오는 모든 단어의 개수이다.
+
+* 각 소설에 대한 용어빈도인 n/total 분포를 확인해보자.
+
+```{r, message=F, warning=F}
+library(ggplot2)
+
+ggplot(book_words, aes(n/total, fill = book)) +
+  geom_histogram(show.legend = FALSE) +
+  xlim(NA, 0.0009) +
+  facet_wrap(~book, ncol = 2, scales = "free_y")
+```
+
+* 각 소설들에는 꼬리가 긴 형태의 분포가 보여짐을 알 수 있다.
+
+* 꼬리가 긴 부분에 분포한 단어들은 각 소설에서 자주 나타나는 단어들을 의미한다.
+
+* 각 소설에서의 **용어빈도(tf)**에 대한 분포는 대부분 유사한 분포를 띄는 것으로 볼 수 있다.
+
+* 분포를 보면 드물게 출현하는 단어 개수는 많은 반면에 자주 출형하는 단어 개수는 적음을 알 수 있다.
+
+
+\pagebreak
+
+> The `bind_tf_idf()` function
+
+-tf-idf의 개념은 흔하게 사용되는 단어에 대한 가중치를 줄이는 한편으로 문서들의 **말뭉치(corpus)**에서 그리 많이 사용되지 않는 단어에 대한 가중치를 늘리는 방식으로 각 문서 내용에서 중요한 단어를 찾는 것이다.
+
+-tf-idf를 계산하면 텍스트 내에서 중요하지만 그렇다고 해서 너무 많이 사용되지 않는 단어를 찾을 수 있다.
+
+-tidytext 패키지의 `bind_tf_idf()` 함수를 통해 이를 계산 할 수 있다.
+
+```{r}
+book_tf_idf <- book_words %>%
+  bind_tf_idf(word, book, n)
+
+book_tf_idf
+```
+
+* idf와 tf-idf는 위 결과 처럼 아주 흔한 단어에 대해서는 0이 된다.
+
+* 0이 되는 단어들은 제인 오스틴의 소설 여섯 권에 공통으로 나오는 단어이므로 idf 항은 1일 것이다.
+
+* 대부분의 문서에서 술현하는 단어인 경우에 tf-idf는 0에 가깝게 될 것이다.
+
+* 이러한 방법으로 흔하게 출현하는 단어의 가중치를 줄이게 된다.
+
+
+```{r}
+book_tf_idf %>%
+  select(-total) %>% # 필요없으므로 제거.
+  arrange(desc(tf_idf)) # tf-idf값이 큰 순서대로 정렬.
+```
+
+* tf-idf가 큰 순서대로 정렬을 하였다.
+
+* 이를 통해 이 소설들에서 사실상 중요한 모든 고유 명사와 이름을 볼 수 있다. 
+
+* 해당 명사들 중 어느 것도 모든 소설에 나타나지는 않으며, 이러한 명사들이야말로 소설들에서 중요한 단어로서, 각 소설의 특성을 나타내는 단어로 볼 수 있다.
+
+* tf-idf 값이 큰 단어를 시각화해보자.
+
+```{r, fig.height=7, fig.width=10}
+library(forcats)
+
+dev.new(width=100, height=500, unit="in") # plot size 조절
+
+book_tf_idf %>%
+  group_by(book) %>% # book으로 그룹화 한 다음.
+  slice_max(tf_idf, n = 15) %>% # 각 문서에서 가장 많이 반복된 15개의 단어만 선정
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(word, tf_idf), fill = book)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~book, ncol = 2, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+```
+
+* 각 소설 별 tf-idf값이 큰 순서대로 나열을 해본 결과, 고유 명사가 대부분을 이루는 것으로 볼 수 있다.
+
+* 이러한 고유 명사가 각 소설에서 사건의 시작이나 사건의 중심에서 무조건 출현하는 단어로 중요한 단어임을 생각해볼 수 있다.
+
+* 중요단어별 사용빈도 또한 각 소설 별 유사한 모습을 띄므로 이는 소설 여섯 개에서 유사한 언어구조를 사용하고 있음을 알 수 있다.
+
+* 소설 모음집 중에서 특정 소설과 나머지 소설을 구별되는 단어는 사람 이름과 장소 이름이라는 점을 알 수 있다.
+
+\pagebreak
+
+## A corpus of physics texts
+
+-소설이나 서사 외의 다른 책에서도 분석을 시행해보자. 고전 물리학 텍스트를 가지고 중요한 용어가 무엇인지 확인해보자.
+
+-사용할 도서들은 300년이라는 시간에 걸쳐 쓰였고, 그중 일부는 처음에는 다른 언어로 먼저 작성된 다음에 영어로 번역되었다.
+
+
+```{r}
+library(gutenbergr)
+physics <- gutenberg_download(c(37729, 14725, 13476, 30155), 
+                              meta_fields = "author",mirror = "http://mirrors.xmission.com/gutenberg/")
+
+physics_words <- physics %>%
+  unnest_tokens(word, text) %>%
+  count(author, word, sort = TRUE)
+
+physics_words
+```
+
+* 각 단어를 센 횟수를 계산하였지만, 문서 별로 길이가 다르기 때문에 이러한 빈도를 보는 것은 유용하지 않다.
+
+```{r}
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%                                  # tf-idf 계산.
+  mutate(author = factor(author, levels = c("Galilei, Galileo",     # author category 변수 생성.
+                                            "Huygens, Christiaan", 
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+
+plot_physics %>% 
+  group_by(author) %>%                           # author로 묶고,
+  slice_max(tf_idf, n = 15) %>%                  # 각 문서에서 가장 많이 반복된 15개의 단어만 선정.
+  ungroup() %>%
+  mutate(word = reorder(word, tf_idf)) %>%       # reorder은 첫번째 인자를 범주형으로 간주하고 두번째 인자의 값에 따라 재정렬함.
+  ggplot(aes(tf_idf, word, fill = author)) +     # 즉, word를 tf-idf에 따라 재정렬을 한 것이다.
+  geom_col(show.legend = FALSE) +                
+  labs(x = "tf-idf", y = NULL) +
+  facet_wrap(~author, ncol = 2, scales = "free") # 각 저자 별 tf-idf가 큰 순서대로 단어를 나열해봄.
+```
+
+* tf-idf가 큰 단어들을 보아도 의미를 모르겠거나 의미가 없어보이는 단어들이 있다.
+
+* 아인슈타인 텍스트에 "_k_"라는 단어처럼 이상한 단어들이 섞여있음을 볼 수 있다.
+
+```{r}
+library(stringr)
+
+physics %>% 
+  filter(str_detect(text, "_k_")) %>% # text 중에 _k_가 들어있는 text를 모두 뽑는다.
+  select(text)
+```
+
+* 이러한 의미를 알기 어렵거나 text의 전반적인 중요한 의미를 담고 있지 않다고 판단되는 단어들을 불용어로 설정하여 제거를 해보자.
+
+```{r}
+mystopwords <- tibble(word = c("eq", "co", "rc", "ac", "ak", "bn",  # stopwords 지정하기.
+                                   "fig", "file", "cg", "cb", "cm",
+                               "ab", "_k", "_k_", "_x"))
+
+physics_words <- anti_join(physics_words, mystopwords,  # 불용어 처리.
+                           by = "word")
+
+plot_physics <- physics_words %>%
+  bind_tf_idf(word, author, n) %>%
+  mutate(word = str_remove_all(word, "_")) %>% # 단어 내에서의 _ 기호 제거하기.
+  group_by(author) %>% 
+  slice_max(tf_idf, n = 15) %>%                # tf-idf값을 기준으로 top 15 선정.
+  ungroup() %>%
+  mutate(word = reorder_within(word, tf_idf, author)) %>% # graph를 그릴 때, 변수명이 잘 인식되도록 변경(?)
+  mutate(author = factor(author, levels = c("Galilei, Galileo",
+                                            "Huygens, Christiaan",
+                                            "Tesla, Nikola",
+                                            "Einstein, Albert")))
+
+ggplot(plot_physics, aes(word, tf_idf, fill = author)) + # 각 저자별 tf-idf값이 가장 큰 15개의 단어 시각화.
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~author, ncol = 2, scales = "free") +
+  coord_flip() +
+  scale_x_reordered() # reorder_within 함수와 대부분 같이 쓰이는 함수.
+```
+
+* 갈릴레오 갈릴레이의 책은 "discourse on floating bodies(유체에 관한 담화)"이며 유체를 다루는 책으로 가장 중요한 단어로 water가 뽑힌 것으로 볼 수 있다.
+
+* 크리스찬 호이겐스의 책은 "Treatise on Light(빛에 관한 논문)"이며 제목에서 알 수 있듯이 refraction(굴절)이 가장 중요한 단어로 뽑힌 것으로 볼 수 있고, 300년에 걸쳐 쓰인 책이기에 "ethereal"와 같이 현대 물리학에서 사용하지 않는 단어를 사용한 것도 보인다.
+
+* 니콜라 테슬라의 "Experiments with Alternate Currents of High Potential and High Frequency(고전위와 고주파수의 교류실험)"책에서 가장 중요한 단어로 뽑힌 것은 bulb(전구)로 이 또한 책을 나타내는 중요한 단어라고 볼 수 있다.
+
+* 아인슈타인의 "Relativity: The Special and General Theory(상대성: 특별이론과 일반이론)"이라는 물리학에 있어 매우 중요하고 매우 유명한 책에서 relativity라는 단어가 가장 중요한 단어로 뽑힌 것을 확인할 수 있다.
+
+* 위 책, 논문을 tf-idf를 기준으로 중요한 단어들을 뽑아본 결과, 뽑힌 단어들이 책을 대표하는 단어들로 볼 수 있으며 당연히 책에서 가장 중요하다고 생각되는 단어들이 잘 뽑힌 것을 볼 수 있다.
+
+#### Summary
+
+-tf-idf를 사용하면 한 문서에 대한 특징적인 단어를 찾아 그 문서의 특성을 파악할 수 있다.
+
+-이러한 tf-idf의 장점을 통해, 논문 분류나 검색 엔진 개발에 있어 좋은 결과를 이끌어 낼 수 있는 방법 중 하나로 사용할 수 있을 것이다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
