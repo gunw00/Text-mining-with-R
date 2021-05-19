@@ -1,0 +1,320 @@
+---
+title: "Chapter5. Converting to and from non-tidy formats"
+author: "Geonwoo Ban"
+date: '2021 4 7'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+앞선 챕터에서는 **tidy text structure**형식으로 배열된 텍스트를 분석했는데, 이러한 형식의 텍스트 데이터는 dplyr, tidyr 및 ggplot2와 같은 library를 사용하여 데이터를 탐색하고 시각화할 수 있다. 
+
+그러나 자연어 처리를 위한 기존의 R tools은 대부분 tidytext 패키지 외에는 tidy structure와 호환되지 않는다. 자연어 처리에는 input을 정돈되지 않은 데이터를 받아도 output에는 정돈된 결과로 내보내는 많은 패키지들이 있다. 이러한 패키지들은 텍스트 마이닝 애플리케이션에 유용해서, 많은 기존 텍스트 데이터셋은 이러한 형식(non-tidy format)에 따라 구성된다.
+
+이번 장에서는 tidy text structure를 다른 중요한 패키지 및 데이터 구조와 연결하는 방법에 대해 논함으로써, 기존 텍스트 마이닝 패키지와 tidy tool을 결합하여 더 원활한 분석작업을 수행할 수 있게 하는것이 목적이다.
+
+
+![](tidy-untidy rel.png)
+
+이 그림은 tidy 와 non-tidy data structure, 그리고 tidy tools와 untidy tools간에 분석 작업을 converting하는 것을 보여준다. 이번 장에서는 Document-Term Matrix를 정돈하는 과정과, 정돈된 행렬에 tidy data frame을 casting하는 과정에 초점을 맞출 것이다.
+
+또한, raw text와 document metadata를 결합한 Corpus object들을 text data frame으로 정돈함으로써, 금융 관련 기사를 수집하여 분석하는 사례연구를 진행하는 방법으로 살펴볼 것이다.
+
+\pagebreak
+
+> 5.1 Tidying a document-term matrix
+
+텍스트 마이닝 패키지가 작동하는 가장 흔한 구조 중 하나는 **document-term matrix(DTM)**이다. 이러한 행렬은 다음과 같은 성질을 만족한다.
+  + 각 행은 하나의 문서(ex. 도서나 논문)를 나타낸다.
+  + 각 열은 하나의 용어를 나타낸다.
+  + 각 값에는 (일반적으로) 해당 문서에서 해당 용어가 출현하는 횟수가 들어간다.
+
+document와 term이 서로 하나의 쌍으로 이루어지는 경우는 거의 일어나지 않으므로 DTM은 일반적으로 sparse matrix가 된다. 이러한 객체를 행렬처럼 처리를 할 수도 있지만 더 효율적인 형식으로 저장할 수도 있다. 이번 장에서는 이러한 행렬에 대한 몇 가지 구현을 설명한다.
+
+대부분의 텍스트 마이닝 패키지에 tidy data frame을 input으로 사용할 수 없듯이 DTM 객체를 tidy tool에서 바로 사용할 수는 없다. 따라서 tidytext 패키지는 두 가지 형식을 변환하는 두 개의 verbs를 제공한다.
+  + `tidy()`는 document-term matrix를 tidy data frame으로 바꾼다.
+  + `cast()`는 tidy data frame을 matrix로 변환해준다. 
+  
+### 5.1.1 Tidying DocumentTermMatrix objects
+
+가장 널리 사용되는 DTM 구현은 **tm**패키지의 DocumentTermMatrix class일 것이다. 사용 가능한 많은 텍스트 마이닝 데이터셋이 이 형식으로 제공된다. 예를 들어 topicmodels 패키지에 포함된 'Associated Press'라는 신문 기사 모음집을 고려해보자.
+
+```{r}
+library(tm)
+
+data("AssociatedPress", package = "topicmodels")
+AssociatedPress
+```
+
+이 데이터셋에는 문서(각 AP 기사)와 용어(별개의 단어들)가 포함되어 있다. 이 DTM은 99%가 sparse하다(document-term 쌍의 99%가 0이라는 것을 의미). `Terms()`함수를 사용해 문서의 용어에 access할 수 있다.
+
+```{r}
+terms <- Terms(AssociatedPress)
+
+head(terms)
+```
+
+tidy tool로 이 데이터를 분석하려면 먼저 one-token-per-document-per-row 구조로 된 데이터 프레임으로 변환해야 한다. `tidy()`함수는 non-tidy object를 가져와 tidy data frame으로 만든다. 
+
+```{r}
+library(dplyr)
+library(tidytext)
+
+ap_td <- tidy(AssociatedPress)
+
+ap_td
+```
+
+이제 document, term, count 변수가 있는 tidy data structure로 변환되었다. 이러한 format은 dplyr, tidytext 및 ggplot2 패키지를 사용한 분석에 용이한 format이다. 예를 들어 2장에서 사용한 방법으로 이 신문 기사에 대한 sentiments analysis를 수행할 수 있다.
+
+```{r}
+ap_sentiments <- ap_td %>%
+  inner_join(get_sentiments("bing"), by = c(term = "word")) # 단어들에 대해 긍정과 부정의 이항분류로 나눈 bing lexicon을 사용.
+
+ap_sentiments
+
+library(ggplot2)
+
+ap_sentiments %>%
+  count(sentiment, term, wt = count) %>%
+  ungroup() %>%
+  filter(n >= 200) %>%                                   # 사용횟수가 200번 이상인 단어들에 대해, 
+  mutate(n = ifelse(sentiment == "negative", -n, n)) %>% # sentiment가 "negative"면 음수의 값으로 변환.
+  mutate(term = reorder(term, n)) %>%
+  ggplot(aes(n, term, fill = sentiment)) +
+  geom_col() +
+  labs(x = "Contribution to sentiment", y = NULL)
+```
+
+sentiment analysis를 통해 Associate Press 기사에서 가장 자주 등장하는 긍정과 부정 단어들을 시각화 해본 결과, 가장 흔히 나온 긍정 단어에는 "like", "work", "support", "good"이 포함되며, 부정 단어에는 "killed", "death", "vice"가 포함된다. 
+
+\pagebreak
+
+
+### 5.1.2 Tidying dfm objects
+
+그 밖의 텍스트 마이닝 패키지들은 quanteda 패키지의 **document-feature matrix(dfm)** class와 같은 document-term matrix의 대체 format을 제공한다. 대통령 취임 연설문 데이터셋을 가지고 dfm으로 변환해보자.
+
+```{r}
+data("data_corpus_inaugural", package = "quanteda")
+inaug_dfm <- quanteda::dfm(data_corpus_inaugural, verbose = FALSE)
+inaug_dfm
+```
+
+`tidy`함수는 이러한 document-feature matrix에서도 tidy text structure으로 변환한다.
+
+```{r}
+inaug_td <- tidy(inaug_dfm)
+inaug_td
+```
+
+각 취임식 연설에서 각 연설자별 공약이라던지 주요 단어들을 뽑아보는 것이 중요할 수 있기 때문에, 3장에서 하였던 것처럼 `bind_tf_idf()` 함수를 사용해 각 **term-speech**쌍의 tf-idf를 계산해 볼 수 있다.
+
+```{r}
+inaug_tf_idf <- inaug_td %>%
+  bind_tf_idf(term, document, count) %>%
+  arrange(desc(tf_idf))
+
+inaug_tf_idf
+```
+
+tf-idf를 계산한 이 데이터를 사용하여 링컨, 루즈벨트, 케네디, 오바마 대통령으로부터 주목할만한 취임 연설을 골라서 각 연설에 가장 주요단어로 보이는 것들을 시각화할 수 있다.
+
+```{r}
+library(forcats)
+
+dev.new(width=100, height=500, unit="in")
+
+inaug_tf_idf %>%
+  filter(document %in% c("1861-Lincoln", "1933-Roosevelt", "1961-Kennedy", "2009-Obama")) %>% 
+  group_by(document) %>% # 연설문별 그룹화.
+  slice_max(tf_idf, n =9) %>% # 각 년도별 연설문에서 tf-idf값이 높은 9개의 단어만 선정
+  ungroup() %>%
+  ggplot(aes(tf_idf, fct_reorder(term, tf_idf), fill = document)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~document, ncol = 2, scales = "free") +
+  labs(x = "tf-idf", y = NULL)
+```
+
+```{r}
+library(tidyr)
+
+year_term_counts <- inaug_td %>%
+  extract(document, "year", "\\d+", convert = TRUE) %>% # document변수에서 "-"를 기준으로 년도에 대한 정보만 가져왔음.
+  complete(year, term, fill = list(count = 0)) %>% # NA인 관측치에 0을 넣어줌.
+  group_by(year) %>%
+  mutate(year_total = sum(count)) # 년도별 총 단어 사용 수 계산.
+
+year_term_counts
+```
+
+다른 년도의 연설문에는 있지만 특정 년도의 연설문에는 생략된 단어들을 모두 표시하기 위해 complete함수를 사용하여 NA를 대체하였다. 이후 특정 단어들에 대해 시간이 지남에 따라 빈도가 어떻게 변하는지를 확인할 수 있다.
+
+```{r}
+year_term_counts %>%
+  filter(term %in% c("god", "america", "foreign", "union", "constitution", "freedom")) %>%
+  ggplot(aes(year, count / year_total)) +
+  geom_point() +
+  geom_smooth() +
+  facet_wrap(~ term, scales = "free_y") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(y = "% frequency of word in inaugural address")
+```
+
+* 연설문에 사용된 특정 단어의 비율이 시간에 지남에 따라 변하는 과정을 그린 그림이다.
+* 이 그림을 통해 먼저 미국 대통령들이 미국을 "Union"으로 언급하는 것 보단 "America"로 언급을 하는 것을 확인할 수 있다.
+* 또한 "Constitution(헌법)"과 "foreign(외국)"국가들에 대해서 언급이 줄게되며, "freedom"과 "god"을 더 많이 언급하는 것으로 보인다.
+
+이렇게 문서가 tidy structure가 아니더라도 변환을 통해 여러 tidy tool들을 사용하여 분석하는 방법을 보여준다.
+
+-Untidy text structure
+  +Document-Term Matrix(DTM) : 문서별 포함된 단어에 대해 sparse하게 만들어진 matrix
+  +Document-Feature Matrix(dfm) : 문서별 사용된 모든 문자들에 대해 sparse하게 만들어진 matrix 
+
+
+
+\pagebreak
+
+> 5.2 Casting tidy text data into a matrix
+
+앞서 untidy data structure에서 tidy structure로 바꾸는 방법을 확인하였다. 이번에는 반대로 tidy structure에서 untidy structure로 변환하기 위한 `cast_`로 시작되는 함수들을 확인해보자.
+
+예를 들면 tidy AP dataset을 가져와서 `cast_dtm()`을 사용해 document-term matrix로 다시 casting할 수 있다.
+
+```{r}
+ap_td
+ap_td %>%
+  cast_dtm(document, term, count)
+```
+
+마찬가지로 document-feature matrix로도 변환이 가능하다.
+
+```{r}
+ap_td %>%
+  cast_dfm(document, term, count)
+```
+
+\pagebreak
+
+> 5.3 Tidying corpus objects with metadata
+
+토큰화를 하기 전에 문서 모음집들을 저장해 두도록 설계된 데이터 구조들이 있는데, 이것들을 **Corpus(말뭉치)**라고 부른다. 여기에는 ID, 날짜/시간, 제목 또는 각 문서의 언어가 포함될 수 있는 메타데이터 옆에 텍스트가 저장되는 구조이다.
+
+예를 들어 tm 패키지에는 Reuters 통신사의 50개 기사가 들어 있는 acq라는 Corpus가 제공된다.
+
+```{r}
+data("acq")
+
+acq
+
+acq[[1]] # 첫번째 문서
+```
+
+Corpus object는 list와 같은 구조로 되너있으며 각 항목에는 텍스트와 메타데이터가 모두 포함된다. 이러한 Corpus object를 사용하는 것은 문서를 편리하게 저장하는 방법이기는 하지만 tidy tool들로 처리하기에는 적합하지 않은 구조이다. 따라서 tidy tool을 사용하기 위해 tidy structure로 바꿔보자.
+
+```{r}
+acq_td <- tidy(acq)
+
+acq_td
+```
+
+이렇게 tidy structure로 바꾼다음 unnest_tokens()와 함께 사용하여 가장 빈도수가 높은 단어들 및 tf-idf값이 높은 단어들을 확인할 수 있다.
+
+```{r}
+acq_tokens <- acq_td %>%
+  select(-places) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words, by = "word")
+
+acq_tokens %>% 
+  count(word, sort=T)
+
+acq_tokens %>%
+  count(id, word) %>%
+  bind_tf_idf(word, id, n) %>%
+  arrange(desc(tf_idf))
+```
+
+\newpage
+
+### 5.3.1 Example: mining financial articles(금융 관련 기사)
+
+Corpus object는 데이터 수집 패키지의 출력 형식중 하나이다. tidy()함수를 사용하면 다양한 텍스트 데이터에 액세스할 수 있다. 한 예로 [tm.plugin.webmining](https://cran.r-project.org/web/packages/tm.plugin.webmining/index.html) 에서는, 온라인 피드에 연결해 중요어를 기반으로 뉴스 기사를 검색한다. 예를 들어 `WebCorpus(GoogleFinanceSource("NASDAQ:MSFT"))`를 사용하면 마이크로소프트(MSFT) 주식과 관련된 가장 최근의 기사 20개를 검색할 수 있다. 여기에서는 아홉 가지 주요 기술주와 관련된 최근 기사를 검색할 것이다.
+
+이런 기술주로는 Microsoft, Apple, Google, Amazon, Facebook, IBM, Yahoo, netflix 등이 있다.
+
+```{r, message=F, error=F, warning=F}
+Sys.setenv(JAVA_HOME="C:\\Program Files (x86)\\Java\\jre1.8.0_291")
+library(rJava)
+library(tm.plugin.webmining)
+library(purrr)
+
+company <- c("Microsoft", "Apple", "Google", "Amazon", "Facebook",
+             "IBM", "Yahoo", "Netflix")
+symbol  <- c("MSFT", "AAPL", "GOOG", "AMZN", "FB", 
+             "IBM", "YHOO", "NFLX")
+
+download_articles <- function(symbol) {
+  WebCorpus(GoogleNewsSource(paste0(symbol))) # Corpus function
+}
+
+stock_articles <- tibble(company = company,
+                         symbol = symbol) %>%
+  mutate(corpus = map(symbol, download_articles)) #map(): transform their input by applying a function to each element of a list
+```
+
+Corpus라는 리스트 형식 열의 각 항목은 WebCorpus 객체이며 acq와 같은 말뭉치들의 특수한 경우이다. 이제 `tidy()`를 사용해 각 객체를 데이터 프레임으로 만들고, tidyr의 `unnest()`를 사용하여 각 기사들을 하나의 열로 분리시키고, `unnest_tokens()`를 사용하여 개별 기사의 텍스트 열을 토큰화 할 수 있다.
+
+```{r}
+stock_tokens <- stock_articles %>%
+  mutate(corpus = map(corpus, tidy)) %>%
+  unnest(cols = (corpus)) %>%
+  unnest_tokens(word, text) %>%
+  select(company, datetimestamp, word, id, heading)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
