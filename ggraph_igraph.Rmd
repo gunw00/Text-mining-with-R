@@ -1,0 +1,137 @@
+---
+title: 'Introduction to ggraph: Layouts'
+author: "Geonwoo Ban"
+date: '2021 4 11 '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+> Layouts
+
+```{r, warning=F, message=F}
+library(ggraph)
+library(igraph)
+library(tidyverse)
+
+highschool %>% head()
+```
+
+-highschool dataset은 "이 학교에서 어떤 친구들과 가장 친한가요?"라는 질문에 의해 평가된 고등학생들 사이의 우정을 보여주는 데이터셋으로, 1957년과 1958년 사이에 두 차례 질문을 했으며, 두 시점 사이의 우정의 변화성을 보여주는 데이터 셋.
+
+  + from : 질문에 대답한 남자
+  + to : 남자가 질문에 대한 대답
+  + year : 설문을 한 시점(1957~1958)
+  
+-이 데이터셋을 가지고 network 시각화를 시행.
+
+
+### `ggraph()` and `create_layout()`
+
+-`graph_from_data_frame()` : 데이터를 방향성을 가지게 바꿔줌.
+
+```{r}
+graph <- graph_from_data_frame(highschool)
+graph
+```
+
+-`create_layout()` : 그림의 layout을 만들어주어 그래프를 그릴 때 객체로 사용가능.
+
+```{r}
+layout <- create_layout(graph, layout = "drl")
+
+layout %>% 
+  ggraph()+
+  geom_edge_link(aes(color=factor(year)))+
+  geom_node_point()
+```
+
+```{r}
+layout %>% head()
+```
+
+* layout을 살펴보면 노드들의 위치와 값들의 이름등의 정보가 담겨있음을 알 수 있다.
+
+### An arc diagram
+
+```{r}
+ggraph(graph, layout = 'linear') + 
+    geom_edge_arc(aes(colour = factor(year)))
+```
+
+### A coord diagram
+
+```{r}
+ggraph(graph, layout = 'linear', circular = TRUE) + 
+    geom_edge_arc(aes(colour = factor(year)))
+```
+
+### Node-edge diagram layouts
+
+igraph는 총 13개의 다른 레이아웃 알고리즘을 제공한다.
+
+```{r}
+library(tweenr)
+igraph_layouts <- c('star', 'circle', 'gem', 'dh', 'graphopt', 'grid', 'mds', 
+                    'randomly', 'fr', 'kk', 'drl', 'lgl')
+igraph_layouts <- sample(igraph_layouts)
+graph <- graph_from_data_frame(highschool)
+V(graph)$degree <- degree(graph)
+layouts <- lapply(igraph_layouts, create_layout, graph = graph)
+layouts_tween <- tween_states(c(layouts, layouts[1]), tweenlength = 1, 
+                              statelength = 1, ease = 'cubic-in-out', 
+                              nframes = length(igraph_layouts) * 16 + 8)
+title_transp <- tween_t(c(0, 1, 0, 0, 0), 16, 'cubic-in-out')[[1]]
+for (i in seq_len(length(igraph_layouts) * 16)) {
+    tmp_layout <- layouts_tween[layouts_tween$.frame == i, ]
+    layout <- igraph_layouts[ceiling(i / 16)]
+    title_alpha <- title_transp[i %% 16]
+    p <- ggraph(graph, 'manual', node.position = tmp_layout[,1:2,2]) + 
+        geom_edge_fan(aes(alpha = ..index.., colour = factor(year)), n = 15) +
+        geom_node_point(aes(size = degree)) + 
+        scale_edge_color_brewer(palette = 'Dark2') + 
+        ggtitle(paste0('Layout: ', layout)) + 
+        theme_void() + 
+        theme(legend.position = 'none', 
+              plot.title = element_text(colour = alpha('black', title_alpha)))
+    plot(p)
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
